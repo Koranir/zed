@@ -70,9 +70,9 @@ use crate::profile_selector::{ProfileProvider, ProfileSelector};
 use crate::ui::{AgentNotification, AgentNotificationEvent, BurnModeTooltip, UsageCallout};
 use crate::{
     AgentDiffPane, AgentPanel, AllowAlways, AllowOnce, ClearMessageQueue, ContinueThread,
-    ContinueWithBurnMode, CycleFavoriteModels, CycleModeSelector, ExpandMessageEditor,
-    FinishTranscribing, Follow, KeepAll, NewThread, OpenHistory, QueueMessage, RejectAll,
-    RejectOnce, SendNextQueuedMessage, StartTranscribing, ToggleBurnMode, ToggleProfileSelector,
+    ContinueWithBurnMode, CycleFavoriteModels, CycleModeSelector, ExpandMessageEditor, Follow,
+    KeepAll, NewThread, OpenHistory, QueueMessage, RejectAll, RejectOnce, SendNextQueuedMessage,
+    ToggleBurnMode, ToggleProfileSelector, ToggleTranscription,
 };
 
 const STOPWATCH_THRESHOLD: Duration = Duration::from_secs(1);
@@ -5495,20 +5495,19 @@ impl AcpThreadView {
             .icon_color(Color::Muted)
             .selected_icon_color(Color::Info)
             .tooltip(move |_window, cx| {
-                if is_transcribing {
-                    Tooltip::for_action("Finish transcribing the prompt", &FinishTranscribing, cx)
-                } else {
-                    Tooltip::for_action("Start transcribing a prompt", &StartTranscribing, cx)
-                }
+                Tooltip::with_meta(
+                    "Toggle prompt transcription",
+                    Some(&ToggleTranscription),
+                    if is_transcribing {
+                        "Stop transcribing"
+                    } else {
+                        "Start transcribing"
+                    },
+                    cx,
+                )
             })
             .on_click(cx.listener(move |this, _, _, cx| {
-                this.message_editor.update(cx, move |editor, cx| {
-                    if is_transcribing {
-                        editor.stop_transcribing();
-                    } else {
-                        editor.start_transcribing(cx);
-                    }
-                })
+                this.toggle_transcription(cx);
             }))
     }
 
@@ -6907,6 +6906,16 @@ impl AcpThreadView {
         } else {
             self.message_editor.clone()
         }
+    }
+
+    pub fn toggle_transcription(&mut self, cx: &mut Context<'_, AcpThreadView>) {
+        self.message_editor.update(cx, move |editor, cx| {
+            if editor.is_transcribing() {
+                editor.stop_transcribing();
+            } else {
+                editor.start_transcribing(cx);
+            }
+        })
     }
 }
 

@@ -15,7 +15,6 @@ use settings::{
 
 use zed_actions::agent::{OpenClaudeCodeOnboardingModal, ReauthenticateAgent};
 
-use crate::ManageProfiles;
 use crate::ui::{AcpOnboardingModal, ClaudeCodeOnboardingModal};
 use crate::{
     AddContextServer, AgentDiffPane, Follow, InlineAssistant, NewTextThread, NewThread,
@@ -33,6 +32,7 @@ use crate::{
     text_thread_history::{TextThreadHistory, TextThreadHistoryEvent},
 };
 use crate::{ExternalAgent, NewExternalAgentThread, NewNativeAgentThreadFromSummary};
+use crate::{ManageProfiles, ToggleTranscription};
 use agent_settings::AgentSettings;
 use ai_onboarding::AgentPanelOnboarding;
 use anyhow::{Result, anyhow};
@@ -205,6 +205,13 @@ pub fn init(cx: &mut App) {
                         panel.update(cx, |panel, cx| {
                             panel.reset_agent_zoom(window, cx);
                         });
+                    }
+                })
+                .register_action(|workspace, _: &ToggleTranscription, _window, cx| {
+                    if let Some(panel) = workspace.panel::<AgentPanel>(cx) {
+                        panel.update(cx, |panel, cx| {
+                            panel.toggle_transcription(cx);
+                        })
                     }
                 });
         },
@@ -1179,6 +1186,14 @@ impl AgentPanel {
                 cx.focus_self(window);
             }
             cx.emit(PanelEvent::ZoomIn);
+        }
+    }
+
+    pub fn toggle_transcription(&mut self, cx: &mut Context<Self>) {
+        if let Some(active_thread_view) = self.active_thread_view() {
+            active_thread_view.update(cx, |thread_view, cx| {
+                thread_view.toggle_transcription(cx);
+            })
         }
     }
 
