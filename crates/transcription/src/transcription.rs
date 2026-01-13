@@ -1,10 +1,9 @@
 use async_channel::{Receiver, Sender};
-use gpui::{actions, App, Global, Subscription, UpdateGlobal};
+use gpui::{actions, App, BorrowAppContext, Global, Subscription, UpdateGlobal};
 use log::{error, info, warn};
 use settings::Settings;
-use std::collections::BTreeMap;
 use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use transcription_settings::SpeechSettings;
 
@@ -49,6 +48,7 @@ impl TranscriptionNotificationStream {
 pub(crate) struct TranscriptionThreadController {
     pub kill: AtomicBool,
     pub wait: AtomicBool,
+    pub finish_up: AtomicBool,
 }
 
 pub struct Transcription {
@@ -60,9 +60,7 @@ pub struct Transcription {
     transcription_sender: Sender<String>,
     notification_sender: Sender<TranscriptionNotification>,
     notification_subscribers: Arc<std::sync::Mutex<Vec<Sender<TranscriptionNotification>>>>,
-    transcription_subscribers:
-        Arc<std::sync::Mutex<BTreeMap<usize, Box<dyn FnMut(String, &mut App) -> bool + Send>>>>,
-    next_subscriber_id: usize,
+    transcription_subscribers: Vec<Weak<dyn Fn(String, &mut App) + Send>>,
     state_change_sender: Sender<TranscriptionThreadState>,
 }
 
@@ -78,10 +76,7 @@ impl Transcription {
         let (transcription_sender, transcription_receiver) = async_channel::unbounded::<String>();
         let (notification_sender, notification_receiver) = async_channel::unbounded();
         let notification_subscribers = Arc::new(std::sync::Mutex::new(Vec::new()));
-        let transcription_subscribers = Arc::new(std::sync::Mutex::new(BTreeMap::<
-            usize,
-            Box<dyn FnMut(String, &mut App) -> bool + Send>,
-        >::new()));
+        let transcription_subscribers = Vec::new();
 
         {
             let notifications: Receiver<TranscriptionNotification> = notification_receiver.clone();
@@ -99,22 +94,16 @@ impl Transcription {
         }
 
         {
-            let task_subscribers = transcription_subscribers.clone();
             let transcription_receiver = transcription_receiver.clone();
             cx.spawn(async move |cx| {
                 while let Ok(text) = transcription_receiver.recv().await {
-                    if task_subscribers.lock().unwrap().is_empty() {
-                        continue;
-                    }
-
                     let text = text.clone();
                     cx.update(|cx| {
-                        let mut subscribers = task_subscribers.lock().unwrap();
-                        for (_, callback) in subscribers.iter_mut() {
-                            if callback(text.clone(), cx) {
-                                break;
-                            }
-                        }
+                        cx.update_global(|transcription: &mut Self, cx| {
+                            transcription
+                                .transcription_subscribers
+                                .retain(|cb| cb.upgrade().map(|cb| cb(text.clone(), cx)).is_some())
+                        })
                     });
                 }
             })
@@ -140,26 +129,18 @@ impl Transcription {
             notification_sender,
             notification_subscribers,
             transcription_subscribers,
-            next_subscriber_id: 0,
             state_change_sender,
         }
     }
 
     pub fn subscribe(
         &mut self,
-        callback: impl FnMut(String, &mut App) -> bool + Send + 'static,
+        callback: impl Fn(String, &mut App) + Send + 'static,
     ) -> Subscription {
-        let id = self.next_subscriber_id;
-        self.next_subscriber_id += 1;
-        self.transcription_subscribers
-            .lock()
-            .unwrap()
-            .insert(id, Box::new(callback));
+        let cb = Arc::new(callback) as _;
+        self.transcription_subscribers.push(Arc::downgrade(&cb));
 
-        let subscribers = self.transcription_subscribers.clone();
-        Subscription::new(move || {
-            subscribers.lock().unwrap().remove(&id);
-        })
+        Subscription::new(move || drop(cb))
     }
 
     pub fn subscribe_notifications(&self) -> TranscriptionNotificationStream {
@@ -225,6 +206,16 @@ impl Transcription {
                 error!("error in transcription loop: {}", err);
             }
         })
+    }
+
+    pub fn finish_current(&self) {
+        if let Some((controller, _)) = &self.task {
+            controller
+                .finish_up
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+        } else {
+            warn!("Tried to finish current transcription early, but the thread is disabled")
+        }
     }
 }
 

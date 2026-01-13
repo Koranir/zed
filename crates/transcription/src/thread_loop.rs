@@ -133,18 +133,14 @@ pub fn transcription_loop_body(
 
     for sample in stream {
         if controller.kill.load(std::sync::atomic::Ordering::SeqCst) {
-            state_change_sender
-                .send_blocking(TranscriptionThreadState::Disabled)
-                .unwrap();
+            state_change_sender.send_blocking(TranscriptionThreadState::Disabled)?;
             info!("Stopping the transcription thread");
             return Ok(());
         }
 
         if controller.wait.load(std::sync::atomic::Ordering::SeqCst) {
             if !was_idling {
-                state_change_sender
-                    .send_blocking(TranscriptionThreadState::Idle)
-                    .unwrap();
+                state_change_sender.send_blocking(TranscriptionThreadState::Idle)?;
                 was_idling = true;
             }
 
@@ -162,9 +158,7 @@ pub fn transcription_loop_body(
             sleep(Duration::from_millis(500));
             continue;
         } else if was_idling {
-            state_change_sender
-                .send_blocking(TranscriptionThreadState::Listening)
-                .unwrap();
+            state_change_sender.send_blocking(TranscriptionThreadState::Listening)?;
             was_idling = false;
         }
 
@@ -175,18 +169,14 @@ pub fn transcription_loop_body(
             }
 
             if was_transcribing {
-                state_change_sender
-                    .send_blocking(TranscriptionThreadState::Listening)
-                    .unwrap();
+                state_change_sender.send_blocking(TranscriptionThreadState::Listening)?;
                 was_transcribing = false;
             }
         } else {
             audio_buffer.push(sample);
 
             if !was_transcribing {
-                state_change_sender
-                    .send_blocking(TranscriptionThreadState::Transcribing)
-                    .unwrap();
+                state_change_sender.send_blocking(TranscriptionThreadState::Transcribing)?;
                 was_transcribing = true;
             }
         }
@@ -202,14 +192,21 @@ pub fn transcription_loop_body(
         window.clear();
         window_energy = 0.0;
 
-        if in_speech {
+        let finish_current = controller
+            .finish_up
+            .load(std::sync::atomic::Ordering::SeqCst);
+        if finish_current {
+            info!("Early finish requested");
+        }
+        if in_speech || finish_current {
             if rms < end_rms {
                 end_run += 1;
             } else {
                 end_run = 0;
             }
 
-            if end_run >= end_windows {
+            let mut sent = false;
+            if end_run >= end_windows || finish_current {
                 if audio_buffer.len() >= BUFFER_SIZE {
                     whisper_state
                         .full(params.clone(), &audio_buffer)
@@ -228,6 +225,7 @@ pub fn transcription_loop_body(
 
                             if !text.is_empty() {
                                 transcription_sender.send_blocking(text)?;
+                                sent = true;
                             }
                         }
                     }
@@ -236,7 +234,14 @@ pub fn transcription_loop_body(
                 audio_buffer.clear();
                 in_speech = false;
                 end_run = 0;
+            };
+            if !sent && finish_current {
+                transcription_sender.send_blocking(String::new())?;
             }
+
+            controller
+                .finish_up
+                .store(false, std::sync::atomic::Ordering::SeqCst);
         } else {
             if rms > start_rms {
                 start_run += 1;

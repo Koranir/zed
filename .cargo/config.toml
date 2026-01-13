@@ -20,7 +20,6 @@ rustflags = [
 linker = "/usr/bin/clang"
 rustflags = [
     "-Clink-arg=-fuse-ld=/usr/bin/wild",
-    "-Cprefer-dynamic=y",
 ]
 
 [env]

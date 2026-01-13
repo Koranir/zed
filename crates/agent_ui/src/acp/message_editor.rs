@@ -26,6 +26,7 @@ use gpui::{
     KeyContext, SharedString, Subscription, Task, TextStyle, WeakEntity,
 };
 use language::{Buffer, Language, language_settings::InlayHintKind};
+use log::info;
 use project::{CompletionIntent, InlayHint, InlayHintLabel, InlayId, Project, Worktree};
 use prompt_store::PromptStore;
 use rope::Point;
@@ -45,7 +46,7 @@ pub struct MessageEditor {
     available_commands: Rc<RefCell<Vec<acp::AvailableCommand>>>,
     agent_name: SharedString,
     thread_store: Option<Entity<ThreadStore>>,
-    transcription: Option<Subscription>,
+    transcription: Option<(Subscription, bool)>,
     _subscriptions: Vec<Subscription>,
     _parse_slash_command_task: Task<()>,
 }
@@ -1007,32 +1008,41 @@ impl MessageEditor {
         let this = cx.weak_entity();
         // let handle = window.window_handle();
 
-        self.transcription = Some(cx.global_mut::<transcription::Transcription>().subscribe(
-            move |text, cx| {
-                this.update(cx, |this, cx| {
-                    this.editor.update(cx, |editor, cx| {
-                        let ranges = editor
-                            .selections
-                            .disjoint_anchors()
-                            .iter()
-                            .map(|d| (d.start..d.end, text.as_str()))
-                            .collect::<Vec<_>>();
-                        editor.edit(ranges, cx);
+        self.transcription = Some((
+            cx.global_mut::<transcription::Transcription>()
+                .subscribe(move |text, cx| {
+                    this.update(cx, |this, cx| {
+                        this.editor.update(cx, |editor, cx| {
+                            info!("Transcribed '{text}' to agent panel");
+                            let ranges = editor
+                                .selections
+                                .disjoint_anchors()
+                                .iter()
+                                .map(|d| (d.start..d.end, text.as_str()))
+                                .collect::<Vec<_>>();
+                            editor.edit(ranges, cx);
+
+                            if this
+                                .transcription
+                                .as_ref()
+                                .is_some_and(|(_, finish)| *finish)
+                            {
+                                this.transcription = None;
+                            }
+                        })
                     })
-                    // this.editor.update(cx, |editor, cx| {
-                    //     let listener = cx.listener(move |editor, _, window, cx| {
-                    //         editor.insert(&text, window, cx);
-                    //     });
-                    //     handle.update(cx, |_, window, cx| listener(editor, window, cx))
-                    // })
-                })
-                .is_ok()
-            },
+                    .unwrap();
+                }),
+            false,
         ))
     }
 
-    pub fn stop_transcribing(&mut self) {
-        self.transcription = None;
+    pub fn stop_transcribing(&mut self, cx: &mut Context<Self>) {
+        if let Some(transcription) = &mut self.transcription {
+            transcription.1 = true;
+            cx.global_mut::<transcription::Transcription>()
+                .finish_current();
+        }
     }
 }
 
