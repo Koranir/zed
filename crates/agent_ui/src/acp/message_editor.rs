@@ -46,9 +46,15 @@ pub struct MessageEditor {
     available_commands: Rc<RefCell<Vec<acp::AvailableCommand>>>,
     agent_name: SharedString,
     thread_store: Option<Entity<ThreadStore>>,
-    transcription: Option<(Subscription, bool)>,
+    transcription: Option<TranscriptionSubscription>,
     _subscriptions: Vec<Subscription>,
     _parse_slash_command_task: Task<()>,
+}
+
+struct TranscriptionSubscription {
+    _subscription: Subscription,
+    finishing: bool,
+    submit: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1016,10 +1022,14 @@ impl MessageEditor {
             return;
         }
 
-        let subscription = transcription.subscribe(move |text, cx| {
+        let _subscription = transcription.subscribe(move |mut text, cx| {
             this.update(cx, |this, cx| {
                 this.editor.update(cx, |editor, cx| {
                     info!("Transcribed '{text}' to agent panel");
+
+                    // Add a space afterwards, makes the output cleaner.
+                    text.push(' ');
+
                     let ranges = editor
                         .selections
                         .disjoint_anchors()
@@ -1027,24 +1037,31 @@ impl MessageEditor {
                         .map(|d| (d.start..d.end, text.as_str()))
                         .collect::<Vec<_>>();
                     editor.edit(ranges, cx);
+                });
 
-                    if this
-                        .transcription
-                        .as_ref()
-                        .is_some_and(|(_, finish)| *finish)
-                    {
-                        this.transcription = None;
+                if let Some(subscr) = &mut this.transcription
+                    && subscr.finishing
+                {
+                    if subscr.submit {
+                        this.send(cx);
                     }
-                })
+
+                    this.transcription = None;
+                }
             });
         });
 
-        self.transcription = Some((subscription, false))
+        self.transcription = Some(TranscriptionSubscription {
+            _subscription,
+            finishing: false,
+            submit: false,
+        })
     }
 
-    pub fn stop_transcribing(&mut self, cx: &mut Context<Self>) {
+    pub fn stop_transcribing(&mut self, cx: &mut Context<Self>, submit: bool) {
         if let Some(transcription) = &mut self.transcription {
-            transcription.1 = true;
+            transcription.finishing = true;
+            transcription.submit = submit;
             cx.global_mut::<transcription::Transcription>()
                 .finish_current();
         }

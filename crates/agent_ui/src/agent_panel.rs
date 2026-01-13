@@ -207,8 +207,9 @@ pub fn init(cx: &mut App) {
                         });
                     }
                 })
-                .register_action(|workspace, _: &ToggleTranscription, _window, cx| {
+                .register_action(|workspace, _: &ToggleTranscription, window, cx| {
                     if let Some(panel) = workspace.panel::<AgentPanel>(cx) {
+                        workspace.focus_panel::<AgentPanel>(window, cx);
                         panel.update(cx, |panel, cx| {
                             panel.toggle_transcription(cx);
                         })
@@ -1192,7 +1193,7 @@ impl AgentPanel {
     pub fn toggle_transcription(&mut self, cx: &mut Context<Self>) {
         if let Some(active_thread_view) = self.active_thread_view() {
             active_thread_view.update(cx, |thread_view, cx| {
-                thread_view.toggle_transcription(cx);
+                thread_view.toggle_transcription(cx, true);
             })
         }
     }

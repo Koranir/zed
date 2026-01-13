@@ -5516,7 +5516,7 @@ impl AcpThreadView {
                 )
             })
             .on_click(cx.listener(move |this, _, _, cx| {
-                this.toggle_transcription(cx);
+                this.toggle_transcription(cx, false);
             }))
     }
 
@@ -6917,10 +6917,10 @@ impl AcpThreadView {
         }
     }
 
-    pub fn toggle_transcription(&mut self, cx: &mut Context<'_, AcpThreadView>) {
+    pub fn toggle_transcription(&mut self, cx: &mut Context<'_, AcpThreadView>, submit: bool) {
         self.message_editor.update(cx, move |editor, cx| {
             if editor.is_transcribing() {
-                editor.stop_transcribing(cx);
+                editor.stop_transcribing(cx, submit);
             } else {
                 editor.start_transcribing(cx);
             }
