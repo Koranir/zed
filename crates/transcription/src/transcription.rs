@@ -1,9 +1,9 @@
 use async_channel::{Receiver, Sender};
 use gpui::{actions, App, Global, Subscription, UpdateGlobal};
 use log::{error, info, warn};
-use parking_lot::Mutex;
 use settings::Settings;
 use std::collections::BTreeMap;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use transcription_settings::SpeechSettings;
@@ -45,31 +45,40 @@ impl TranscriptionNotificationStream {
     }
 }
 
+#[derive(Default)]
+pub(crate) struct TranscriptionThreadController {
+    pub kill: AtomicBool,
+    pub wait: AtomicBool,
+}
+
 pub struct Transcription {
-    state: Arc<Mutex<TranscriptionThreadState>>,
-    task: Option<std::thread::JoinHandle<()>>,
+    state: TranscriptionThreadState,
+    task: Option<(
+        Arc<TranscriptionThreadController>,
+        std::thread::JoinHandle<()>,
+    )>,
     transcription_sender: Sender<String>,
     notification_sender: Sender<TranscriptionNotification>,
-    notification_subscribers: Arc<Mutex<Vec<Sender<TranscriptionNotification>>>>,
+    notification_subscribers: Arc<std::sync::Mutex<Vec<Sender<TranscriptionNotification>>>>,
     transcription_subscribers:
-        Arc<Mutex<BTreeMap<usize, Box<dyn FnMut(String, &mut App) -> bool + Send>>>>,
+        Arc<std::sync::Mutex<BTreeMap<usize, Box<dyn FnMut(String, &mut App) -> bool + Send>>>>,
     next_subscriber_id: usize,
+    state_change_sender: Sender<TranscriptionThreadState>,
 }
 
 impl Global for Transcription {}
 
 impl Transcription {
     pub fn state(&self) -> TranscriptionThreadState {
-        *self.state.lock()
+        self.state
     }
 
     fn new(cx: &mut App) -> Self {
         info!("Initializing speech global");
         let (transcription_sender, transcription_receiver) = async_channel::unbounded::<String>();
         let (notification_sender, notification_receiver) = async_channel::unbounded();
-        let notification_subscribers = Arc::new(Mutex::new(Vec::new()));
-        let state = Arc::new(Mutex::new(TranscriptionThreadState::Idle));
-        let transcription_subscribers = Arc::new(Mutex::new(BTreeMap::<
+        let notification_subscribers = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let transcription_subscribers = Arc::new(std::sync::Mutex::new(BTreeMap::<
             usize,
             Box<dyn FnMut(String, &mut App) -> bool + Send>,
         >::new()));
@@ -94,13 +103,13 @@ impl Transcription {
             let transcription_receiver = transcription_receiver.clone();
             cx.spawn(async move |cx| {
                 while let Ok(text) = transcription_receiver.recv().await {
-                    if task_subscribers.lock().is_empty() {
+                    if task_subscribers.lock().unwrap().is_empty() {
                         continue;
                     }
 
                     let text = text.clone();
                     cx.update(|cx| {
-                        let mut subscribers = task_subscribers.lock();
+                        let mut subscribers = task_subscribers.lock().unwrap();
                         for (_, callback) in subscribers.iter_mut() {
                             if callback(text.clone(), cx) {
                                 break;
@@ -112,14 +121,27 @@ impl Transcription {
             .detach();
         }
 
+        let (state_change_sender, state_change_receiver) = async_channel::unbounded();
+        {
+            cx.spawn(async move |cx| {
+                while let Ok(state) = state_change_receiver.recv().await {
+                    cx.update_global(|g: &mut Self, _| {
+                        g.state = state;
+                    });
+                }
+            })
+            .detach();
+        }
+
         Self {
-            state,
+            state: TranscriptionThreadState::Idle,
             task: None,
             transcription_sender,
             notification_sender,
             notification_subscribers,
             transcription_subscribers,
             next_subscriber_id: 0,
+            state_change_sender,
         }
     }
 
@@ -131,54 +153,62 @@ impl Transcription {
         self.next_subscriber_id += 1;
         self.transcription_subscribers
             .lock()
+            .unwrap()
             .insert(id, Box::new(callback));
 
         let subscribers = self.transcription_subscribers.clone();
         Subscription::new(move || {
-            subscribers.lock().remove(&id);
+            subscribers.lock().unwrap().remove(&id);
         })
     }
 
     pub fn subscribe_notifications(&self) -> TranscriptionNotificationStream {
         let (sender, receiver) = async_channel::unbounded();
-        self.notification_subscribers.lock().push(sender);
+        self.notification_subscribers.lock().unwrap().push(sender);
         TranscriptionNotificationStream::new(receiver)
     }
 
-    fn broadcast<T: Clone>(subscribers: &Arc<Mutex<Vec<Sender<T>>>>, value: T) {
-        let mut sinks = subscribers.lock();
-        sinks.retain(|subscriber| subscriber.try_send(value.clone()).is_ok());
+    fn broadcast<T: Clone>(subscribers: &Arc<std::sync::Mutex<Vec<Sender<T>>>>, value: T) {
+        let mut sinks = subscribers.lock().unwrap();
+        sinks.retain(|subscriber: &Sender<T>| subscriber.try_send(value.clone()).is_ok());
     }
 
     fn toggle_listening(&mut self, cx: &mut App) {
-        let mut state = self.state.lock();
         if let Some(thread_handle) = self.task.take() {
-            *state = TranscriptionThreadState::Disabled;
-            drop(state);
             thread_handle
+                .0
+                .kill
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            thread_handle
+                .1
                 .join()
                 .unwrap_or_else(|_| warn!("Failed to join speech thread"));
+            self.state = TranscriptionThreadState::Disabled;
             info!("Speech listening stopped");
         } else {
-            *state = TranscriptionThreadState::Listening;
-            drop(state);
+            self.state = TranscriptionThreadState::Idle;
 
             let transcription_sender = self.transcription_sender.clone();
             let notification_sender = self.notification_sender.clone();
-            self.task = Some(Transcription::run_transcription_loop(
-                self.state.clone(),
+            let state_change_sender = self.state_change_sender.clone();
+            let controller = Arc::new(TranscriptionThreadController::default());
+            let task = Transcription::run_transcription_loop(
+                controller.clone(),
                 transcription_sender,
                 notification_sender,
+                state_change_sender,
                 cx,
-            ));
+            );
+            self.task = Some((controller, task));
             info!("Speech listening started");
         }
     }
 
     fn run_transcription_loop(
-        state: Arc<Mutex<TranscriptionThreadState>>,
+        controller: Arc<TranscriptionThreadController>,
         transcription_sender: Sender<String>,
         notification_sender: Sender<TranscriptionNotification>,
+        state_change_sender: Sender<TranscriptionThreadState>,
         cx: &mut App,
     ) -> std::thread::JoinHandle<()> {
         info!("Launching transcription loop");
@@ -187,9 +217,10 @@ impl Transcription {
         std::thread::spawn(move || {
             if let Err(err) = thread_loop::transcription_loop_body(
                 settings,
-                state,
+                controller,
                 transcription_sender,
                 notification_sender,
+                state_change_sender,
             ) {
                 error!("error in transcription loop: {}", err);
             }

@@ -45,6 +45,7 @@ pub struct MessageEditor {
     available_commands: Rc<RefCell<Vec<acp::AvailableCommand>>>,
     agent_name: SharedString,
     thread_store: Option<Entity<ThreadStore>>,
+    transcription: Option<Subscription>,
     _subscriptions: Vec<Subscription>,
     _parse_slash_command_task: Task<()>,
 }
@@ -220,6 +221,7 @@ impl MessageEditor {
             thread_store,
             _subscriptions: subscriptions,
             _parse_slash_command_task: Task::ready(()),
+            transcription: None,
         }
     }
 
@@ -995,6 +997,42 @@ impl MessageEditor {
         self.editor.update(cx, |editor, cx| {
             editor.set_text(text, window, cx);
         });
+    }
+
+    pub fn is_transcribing(&self) -> bool {
+        self.transcription.is_some()
+    }
+
+    pub fn start_transcribing(&mut self, cx: &mut Context<Self>) {
+        let this = cx.weak_entity();
+        // let handle = window.window_handle();
+
+        self.transcription = Some(cx.global_mut::<transcription::Transcription>().subscribe(
+            move |text, cx| {
+                this.update(cx, |this, cx| {
+                    this.editor.update(cx, |editor, cx| {
+                        let ranges = editor
+                            .selections
+                            .disjoint_anchors()
+                            .iter()
+                            .map(|d| (d.start..d.end, text.as_str()))
+                            .collect::<Vec<_>>();
+                        editor.edit(ranges, cx);
+                    })
+                    // this.editor.update(cx, |editor, cx| {
+                    //     let listener = cx.listener(move |editor, _, window, cx| {
+                    //         editor.insert(&text, window, cx);
+                    //     });
+                    //     handle.update(cx, |_, window, cx| listener(editor, window, cx))
+                    // })
+                })
+                .is_ok()
+            },
+        ))
+    }
+
+    pub fn stop_transcribing(&mut self) {
+        self.transcription = None;
     }
 }
 

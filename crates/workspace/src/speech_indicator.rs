@@ -4,6 +4,7 @@ use gpui::{
 };
 use theme::ActiveTheme;
 use transcription::{ToggleDictationChannel, Transcription, TranscriptionThreadState};
+use ui::{Clickable, FixedWidth};
 
 pub struct SpeechIndicator {
     subscription: Option<Subscription>,
@@ -32,18 +33,24 @@ impl Render for SpeechIndicator {
         }
 
         let color = match self.state {
-            TranscriptionThreadState::Listening => cx.theme().colors().text_accent,
-            _ => cx.theme().colors().text,
+            TranscriptionThreadState::Disabled => cx.theme().colors().icon_disabled,
+            TranscriptionThreadState::Transcribing => cx.theme().colors().icon_accent,
+            _ => cx.theme().colors().icon,
         };
 
-        div()
-            .child(svg().path("icons/mic.svg").w_4().h_4().text_color(color))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|_, _, window, cx| {
-                    window.dispatch_action(ToggleDictationChannel.boxed_clone(), cx);
-                }),
-            )
+        ui::IconButton::new(
+            "speech-indicator",
+            match self.state {
+                TranscriptionThreadState::Disabled => ui::IconName::MicMute,
+                TranscriptionThreadState::Idle => ui::IconName::MicMute,
+                TranscriptionThreadState::Listening => ui::IconName::Mic,
+                TranscriptionThreadState::Transcribing => ui::IconName::Mic,
+            },
+        )
+        .icon_color(color.into())
+        .on_click(cx.listener(|_, _, window, cx| {
+            window.dispatch_action(ToggleDictationChannel.boxed_clone(), cx);
+        }))
     }
 }
 

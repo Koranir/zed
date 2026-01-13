@@ -129,6 +129,10 @@ actions!(
         SendNextQueuedMessage,
         /// Clears all messages from the queue.
         ClearMessageQueue,
+        /// Start transcribing a prompt
+        StartTranscribing,
+        /// Finish transcribing a prompt
+        FinishTranscribing,
     ]
 );
 

@@ -4,7 +4,6 @@ use anyhow::{Ok, Result};
 use async_channel::Sender;
 use audio::RodioExt;
 use log::{error, info, warn};
-use parking_lot::Mutex;
 use rodio::microphone::MicrophoneBuilder;
 use rodio::nz;
 use rodio::source::UniformSourceIterator;
@@ -34,7 +33,7 @@ const DEFAULT_START_RMS: f32 = 0.005;
 /// Loudness threshold (maximum RMS) for speech detection
 const DEFAULT_END_RMS: f32 = 0.01;
 
-use crate::{TranscriptionNotification, TranscriptionThreadState};
+use crate::{TranscriptionNotification, TranscriptionThreadController, TranscriptionThreadState};
 
 fn open_mic() -> Result<UniformSourceIterator<impl rodio::Source>> {
     let stream = MicrophoneBuilder::new()
@@ -93,9 +92,10 @@ pub fn load_whisper_model(
 
 pub fn transcription_loop_body(
     settings: SpeechSettings,
-    state: Arc<Mutex<TranscriptionThreadState>>,
+    controller: Arc<TranscriptionThreadController>,
     transcription_sender: Sender<String>,
     notification_sender: Sender<TranscriptionNotification>,
+    state_change_sender: Sender<TranscriptionThreadState>,
 ) -> Result<()> {
     let stream = open_mic()?;
 
@@ -128,15 +128,26 @@ pub fn transcription_loop_body(
     let mut end_run = 0usize;
     let mut in_speech = false;
 
-    for sample in stream {
-        let state = (*state.lock()).clone();
+    let mut was_idling = false;
+    let mut was_transcribing = false;
 
-        if state == TranscriptionThreadState::Disabled {
+    for sample in stream {
+        if controller.kill.load(std::sync::atomic::Ordering::SeqCst) {
+            state_change_sender
+                .send_blocking(TranscriptionThreadState::Disabled)
+                .unwrap();
             info!("Stopping the transcription thread");
             return Ok(());
         }
 
-        if state != TranscriptionThreadState::Listening {
+        if controller.wait.load(std::sync::atomic::Ordering::SeqCst) {
+            if !was_idling {
+                state_change_sender
+                    .send_blocking(TranscriptionThreadState::Idle)
+                    .unwrap();
+                was_idling = true;
+            }
+
             // If not listening, clear the buffer and sleep for a bit
             audio_buffer.clear();
             pre_roll.clear();
@@ -148,8 +159,13 @@ pub fn transcription_loop_body(
 
             info!("Not listening...");
 
-            sleep(Duration::from_millis(5000));
+            sleep(Duration::from_millis(500));
             continue;
+        } else if was_idling {
+            state_change_sender
+                .send_blocking(TranscriptionThreadState::Listening)
+                .unwrap();
+            was_idling = false;
         }
 
         if !in_speech {
@@ -157,8 +173,22 @@ pub fn transcription_loop_body(
             if pre_roll.len() > PRE_ROLL_SAMPLES {
                 let _ = pre_roll.pop_front();
             }
+
+            if was_transcribing {
+                state_change_sender
+                    .send_blocking(TranscriptionThreadState::Listening)
+                    .unwrap();
+                was_transcribing = false;
+            }
         } else {
             audio_buffer.push(sample);
+
+            if !was_transcribing {
+                state_change_sender
+                    .send_blocking(TranscriptionThreadState::Transcribing)
+                    .unwrap();
+                was_transcribing = true;
+            }
         }
 
         window.push(sample);

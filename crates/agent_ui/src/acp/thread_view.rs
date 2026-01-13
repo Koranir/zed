@@ -70,9 +70,9 @@ use crate::profile_selector::{ProfileProvider, ProfileSelector};
 use crate::ui::{AgentNotification, AgentNotificationEvent, BurnModeTooltip, UsageCallout};
 use crate::{
     AgentDiffPane, AgentPanel, AllowAlways, AllowOnce, ClearMessageQueue, ContinueThread,
-    ContinueWithBurnMode, CycleFavoriteModels, CycleModeSelector, ExpandMessageEditor, Follow,
-    KeepAll, NewThread, OpenHistory, QueueMessage, RejectAll, RejectOnce, SendNextQueuedMessage,
-    ToggleBurnMode, ToggleProfileSelector,
+    ContinueWithBurnMode, CycleFavoriteModels, CycleModeSelector, ExpandMessageEditor,
+    FinishTranscribing, Follow, KeepAll, NewThread, OpenHistory, QueueMessage, RejectAll,
+    RejectOnce, SendNextQueuedMessage, StartTranscribing, ToggleBurnMode, ToggleProfileSelector,
 };
 
 const STOPWATCH_THRESHOLD: Duration = Duration::from_secs(1);
@@ -5128,6 +5128,7 @@ impl AcpThreadView {
                             .gap_0p5()
                             .child(self.render_add_context_button(cx))
                             .child(self.render_follow_toggle(cx))
+                            .child(self.render_transcribe_button(cx))
                             .children(self.render_burn_mode_toggle(cx)),
                     )
                     .child(
@@ -5483,6 +5484,31 @@ impl AcpThreadView {
             })
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.toggle_following(window, cx);
+            }))
+    }
+
+    fn render_transcribe_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let is_transcribing = self.message_editor.read(cx).is_transcribing();
+
+        IconButton::new("transcribe-prompt", IconName::Mic)
+            .icon_size(IconSize::Small)
+            .icon_color(Color::Muted)
+            .selected_icon_color(Color::Info)
+            .tooltip(move |_window, cx| {
+                if is_transcribing {
+                    Tooltip::for_action("Finish transcribing the prompt", &FinishTranscribing, cx)
+                } else {
+                    Tooltip::for_action("Start transcribing a prompt", &StartTranscribing, cx)
+                }
+            })
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.message_editor.update(cx, move |editor, cx| {
+                    if is_transcribing {
+                        editor.stop_transcribing();
+                    } else {
+                        editor.start_transcribing(cx);
+                    }
+                })
             }))
     }
 
