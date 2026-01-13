@@ -51,6 +51,7 @@ use std::{
     time::Instant,
 };
 use theme::{ActiveTheme, GlobalTheme, ThemeRegistry};
+use transcription;
 use util::{ResultExt, TryFutureExt, maybe};
 use uuid::Uuid;
 use workspace::{
@@ -629,6 +630,7 @@ fn main() {
         diagnostics::init(cx);
 
         audio::init(cx);
+        transcription::init(cx);
         workspace::init(app_state.clone(), cx);
         ui_prompt::init(cx);
 

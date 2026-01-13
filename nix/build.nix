@@ -35,6 +35,8 @@
   protobuf,
   sqlite,
   vulkan-loader,
+  vulkan-headers,
+  shaderc,
   wayland,
   xorg,
   zlib,
