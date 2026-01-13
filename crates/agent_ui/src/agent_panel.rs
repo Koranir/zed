@@ -214,9 +214,7 @@ pub fn init(cx: &mut App) {
                         if !panel.panel_focus_handle(cx).is_focused(window)
                             && !panel.read(cx).is_transcribing(cx)
                         {
-                            window.defer(cx, |window, cx| {
-                                window.dispatch_action(Box::new(AddSelectionToThread), cx);
-                            });
+                            window.dispatch_action(Box::new(AddSelectionToThread), cx);
                         }
 
                         workspace.focus_panel::<AgentPanel>(window, cx);
