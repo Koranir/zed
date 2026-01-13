@@ -13,7 +13,9 @@ use settings::{
     DefaultAgentView as DefaultView, LanguageModelProviderSetting, LanguageModelSelection,
 };
 
-use zed_actions::agent::{OpenClaudeCodeOnboardingModal, ReauthenticateAgent};
+use zed_actions::agent::{
+    AddSelectionToThread, OpenClaudeCodeOnboardingModal, ReauthenticateAgent,
+};
 
 use crate::ui::{AcpOnboardingModal, ClaudeCodeOnboardingModal};
 use crate::{
@@ -64,7 +66,7 @@ use ui::{
 use util::ResultExt as _;
 use workspace::{
     CollaboratorId, DraggedSelection, DraggedTab, ToggleZoom, ToolbarItemView, Workspace,
-    dock::{DockPosition, Panel, PanelEvent},
+    dock::{DockPosition, Panel, PanelEvent, PanelHandle},
 };
 use zed_actions::{
     DecreaseBufferFontSize, IncreaseBufferFontSize, ResetBufferFontSize,
@@ -210,6 +212,15 @@ pub fn init(cx: &mut App) {
                 .register_action(|workspace, _: &ToggleTranscription, window, cx| {
                     if let Some(panel) = workspace.panel::<AgentPanel>(cx) {
                         workspace.focus_panel::<AgentPanel>(window, cx);
+
+                        if !panel.panel_focus_handle(cx).is_focused(window)
+                            && !panel.read(cx).is_transcribing(cx)
+                        {
+                            window.defer(cx, |window, cx| {
+                                window.dispatch_action(Box::new(AddSelectionToThread), cx);
+                            });
+                        }
+
                         panel.update(cx, |panel, cx| {
                             panel.toggle_transcription(cx);
                         })
@@ -1188,6 +1199,11 @@ impl AgentPanel {
             }
             cx.emit(PanelEvent::ZoomIn);
         }
+    }
+
+    pub fn is_transcribing(&self, cx: &App) -> bool {
+        self.active_thread_view()
+            .is_some_and(|t| t.read(cx).is_transcribing(cx))
     }
 
     pub fn toggle_transcription(&mut self, cx: &mut Context<Self>) {

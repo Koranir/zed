@@ -6917,7 +6917,7 @@ impl AcpThreadView {
         }
     }
 
-    pub fn toggle_transcription(&mut self, cx: &mut Context<'_, AcpThreadView>, submit: bool) {
+    pub fn toggle_transcription(&mut self, cx: &mut Context<Self>, submit: bool) {
         self.message_editor.update(cx, move |editor, cx| {
             if editor.is_transcribing() {
                 editor.stop_transcribing(cx, submit);
@@ -6925,6 +6925,10 @@ impl AcpThreadView {
                 editor.start_transcribing(cx);
             }
         })
+    }
+
+    pub fn is_transcribing(&self, cx: &App) -> bool {
+        self.message_editor.read(cx).is_transcribing()
     }
 }
 
