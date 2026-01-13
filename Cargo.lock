@@ -14886,7 +14886,6 @@ dependencies = [
  "settings_macros",
  "smallvec",
  "strum 0.27.2",
- "transcription_settings",
  "unindent",
  "util",
  "zlog",
@@ -17453,6 +17452,7 @@ dependencies = [
  "parking_lot",
  "paths",
  "rodio",
+ "settings",
  "transcription_settings",
  "whisper-rs",
 ]
@@ -17461,8 +17461,10 @@ dependencies = [
 name = "transcription_settings"
 version = "0.1.0"
 dependencies = [
+ "gpui",
  "schemars",
  "serde",
+ "settings",
 ]
 
 [[package]]
@@ -19245,6 +19247,7 @@ dependencies = [
  "ui",
  "util",
  "workspace",
+]
 
 [[package]]
 name = "whisper-rs"

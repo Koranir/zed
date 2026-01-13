@@ -2,8 +2,11 @@ use async_channel::{Receiver, Sender};
 use gpui::{actions, App, Global, Subscription, UpdateGlobal};
 use log::{error, info, warn};
 use parking_lot::Mutex;
+use settings::Settings;
 use std::collections::BTreeMap;
 use std::sync::Arc;
+
+use transcription_settings::SpeechSettings;
 
 mod thread_loop;
 
@@ -103,8 +106,7 @@ impl Transcription {
                                 break;
                             }
                         }
-                    })
-                    .ok();
+                    });
                 }
             })
             .detach();
@@ -177,11 +179,14 @@ impl Transcription {
         state: Arc<Mutex<TranscriptionThreadState>>,
         transcription_sender: Sender<String>,
         notification_sender: Sender<TranscriptionNotification>,
-        _cx: &mut App,
+        cx: &mut App,
     ) -> std::thread::JoinHandle<()> {
         info!("Launching transcription loop");
+        let settings = SpeechSettings::get_global(cx).clone();
+
         std::thread::spawn(move || {
             if let Err(err) = thread_loop::transcription_loop_body(
+                settings,
                 state,
                 transcription_sender,
                 notification_sender,

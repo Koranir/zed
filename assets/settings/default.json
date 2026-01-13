@@ -2424,4 +2424,17 @@
   //
   // Example: {"log": {"client": "warn"}}
   "log": {},
+
+  // speech recognition parameters
+  "speech": {
+    "enabled": false,
+    "model": "ggml-base.en.bin",
+    "ai_provider": "huggingface",
+    "threads": 8,
+    "language": "en",
+    "start_sensitivity": 2,
+    "start_timeout": 2,
+    "stop_sensitivity": 4,
+    "stop_timeout": 20,
+  },
 }

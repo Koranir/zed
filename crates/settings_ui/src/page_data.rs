@@ -6931,7 +6931,7 @@ fn network_page() -> SettingsPage {
 }
 
 fn speech_page() -> SettingsPage {
-    fn speech_recognition_section() -> [SettingsPageItem; 4] {
+    fn speech_recognition_section() -> [SettingsPageItem; 10] {
         [
             SettingsPageItem::SectionHeader("Speech Recognition"),
             SettingsPageItem::SettingItem(SettingItem {
@@ -6939,11 +6939,14 @@ fn speech_page() -> SettingsPage {
                 description: "Enable speech-to-text for interacting with Zed.",
                 field: Box::new(SettingField {
                     json_path: Some("speech.enabled"),
-                    pick: |settings_content| settings_content.speech.as_ref().map(|s| &s.enabled),
+                    pick: |settings_content| {
+                        settings_content
+                            .speech
+                            .as_ref()
+                            .and_then(|s| s.enabled.as_ref())
+                    },
                     write: |settings_content, value| {
-                        if let Some(value) = value {
-                            settings_content.speech.get_or_insert_default().enabled = value;
-                        }
+                        settings_content.speech.get_or_insert_default().enabled = value;
                     },
                 }),
                 metadata: None,
@@ -6954,14 +6957,20 @@ fn speech_page() -> SettingsPage {
                 description: "The Whisper model to use for transcription (e.g., 'tiny.en', 'base.en').",
                 field: Box::new(SettingField {
                     json_path: Some("speech.model"),
-                    pick: |settings_content| settings_content.speech.as_ref().map(|s| &s.model),
+                    pick: |settings_content| {
+                        settings_content
+                            .speech
+                            .as_ref()
+                            .and_then(|s| s.model.as_ref())
+                    },
                     write: |settings_content, value| {
-                        if let Some(value) = value {
-                            settings_content.speech.get_or_insert_default().model = value;
-                        }
+                        settings_content.speech.get_or_insert_default().model = value;
                     },
                 }),
-                metadata: None,
+                metadata: Some(Box::new(SettingsFieldMetadata {
+                    placeholder: Some("tiny.en"),
+                    ..Default::default()
+                })),
                 files: USER,
             }),
             SettingsPageItem::SettingItem(SettingItem {
@@ -6970,15 +6979,154 @@ fn speech_page() -> SettingsPage {
                 field: Box::new(SettingField {
                     json_path: Some("speech.ai_provider"),
                     pick: |settings_content| {
-                        settings_content.speech.as_ref().map(|s| &s.ai_provider)
+                        settings_content
+                            .speech
+                            .as_ref()
+                            .and_then(|s| s.ai_provider.as_ref())
                     },
                     write: |settings_content, value| {
-                        if let Some(value) = value {
-                            settings_content.speech.get_or_insert_default().ai_provider = value;
-                        }
+                        settings_content.speech.get_or_insert_default().ai_provider = value;
                     },
                 }),
-                metadata: None,
+                metadata: Some(Box::new(SettingsFieldMetadata {
+                    placeholder: Some("tiny.en"),
+                    ..Default::default()
+                })),
+                files: USER,
+            }),
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "Background Threads",
+                description: "The number of threads to use for transcription.",
+                field: Box::new(SettingField {
+                    json_path: Some("speech.threads"),
+                    pick: |settings_content| {
+                        settings_content
+                            .speech
+                            .as_ref()
+                            .and_then(|s| s.threads.as_ref())
+                    },
+                    write: |settings_content, value| {
+                        settings_content.speech.get_or_insert_default().threads = value;
+                    },
+                }),
+                metadata: Some(Box::new(SettingsFieldMetadata {
+                    placeholder: Some("8"),
+                    ..Default::default()
+                })),
+                files: USER,
+            }),
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "Transcription Language",
+                description: "The language to transcribe. Defaults to English.",
+                field: Box::new(SettingField {
+                    json_path: Some("speech.language"),
+                    pick: |settings_content| {
+                        settings_content
+                            .speech
+                            .as_ref()
+                            .and_then(|s| s.language.as_ref())
+                    },
+                    write: |settings_content, value| {
+                        settings_content.speech.get_or_insert_default().language = value;
+                    },
+                }),
+                metadata: Some(Box::new(SettingsFieldMetadata {
+                    placeholder: Some("en"),
+                    ..Default::default()
+                })),
+                files: USER,
+            }),
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "Start Threshold",
+                description: "The sensitivity threshold for detecting the start of speech.",
+                field: Box::new(SettingField {
+                    json_path: Some("speech.start_sensitivity"),
+                    pick: |settings_content| {
+                        settings_content
+                            .speech
+                            .as_ref()
+                            .and_then(|s| s.start_sensitivity.as_ref())
+                    },
+                    write: |settings_content, value| {
+                        settings_content
+                            .speech
+                            .get_or_insert_default()
+                            .start_sensitivity = value;
+                    },
+                }),
+                metadata: Some(Box::new(SettingsFieldMetadata {
+                    placeholder: Some("2.0"),
+                    ..Default::default()
+                })),
+                files: USER,
+            }),
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "Start Timeout",
+                description: "The timeout for detecting the start of speech.",
+                field: Box::new(SettingField {
+                    json_path: Some("speech.start_timeout"),
+                    pick: |settings_content| {
+                        settings_content
+                            .speech
+                            .as_ref()
+                            .and_then(|s| s.start_timeout.as_ref())
+                    },
+                    write: |settings_content, value| {
+                        settings_content
+                            .speech
+                            .get_or_insert_default()
+                            .start_timeout = value;
+                    },
+                }),
+                metadata: Some(Box::new(SettingsFieldMetadata {
+                    placeholder: Some("2"),
+                    ..Default::default()
+                })),
+                files: USER,
+            }),
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "Stop Threshold",
+                description: "The sensitivity threshold for detecting the end of speech.",
+                field: Box::new(SettingField {
+                    json_path: Some("speech.stop_sensitivity"),
+                    pick: |settings_content| {
+                        settings_content
+                            .speech
+                            .as_ref()
+                            .and_then(|s| s.stop_sensitivity.as_ref())
+                    },
+                    write: |settings_content, value| {
+                        settings_content
+                            .speech
+                            .get_or_insert_default()
+                            .stop_sensitivity = value;
+                    },
+                }),
+                metadata: Some(Box::new(SettingsFieldMetadata {
+                    placeholder: Some("4.0"),
+                    ..Default::default()
+                })),
+                files: USER,
+            }),
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "Stop Timeout",
+                description: "The timeout for detecting the end of speech.",
+                field: Box::new(SettingField {
+                    json_path: Some("speech.stop_timeout"),
+                    pick: |settings_content| {
+                        settings_content
+                            .speech
+                            .as_ref()
+                            .and_then(|s| s.stop_timeout.as_ref())
+                    },
+                    write: |settings_content, value| {
+                        settings_content.speech.get_or_insert_default().stop_timeout = value;
+                    },
+                }),
+                metadata: Some(Box::new(SettingsFieldMetadata {
+                    placeholder: Some("20"),
+                    ..Default::default()
+                })),
                 files: USER,
             }),
         ]

@@ -8,12 +8,13 @@ use parking_lot::Mutex;
 use rodio::microphone::MicrophoneBuilder;
 use rodio::nz;
 use rodio::source::UniformSourceIterator;
+use transcription_settings::SpeechSettings;
 use whisper_rs::{
     DtwModelPreset, FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters,
     WhisperState,
 };
 
-const WHISPER_MODEL_NAME: &str = "ggml-base.en.bin";
+const DEFAULT_WHISPER_MODEL_NAME: &str = "ggml-base.en.bin";
 const TARGET_SAMPLE_RATE: NonZero<u32> = nz!(16_000);
 /// Minimum number of samples needed to send to whisper
 const BUFFER_SIZE: usize = TARGET_SAMPLE_RATE.get() as usize / 10;
@@ -25,13 +26,13 @@ const PRE_ROLL_SAMPLES: usize = TARGET_SAMPLE_RATE.get() as usize / 5; // 200ms
 /// The amount of samples to check speech detecion against - used in start/end windows
 const WINDOW_SIZE: usize = TARGET_SAMPLE_RATE.get() as usize / 50; // 20ms
 /// How many consecutive "loud" windows are needed to start the speech detection
-const START_WINDOWS: usize = 2; // >= 60ms above threshold to start
+const DEFAULT_START_WINDOWS: usize = 2; // >= 60ms above threshold to start
 /// How many consecutive "quiet" windows are needed to end the speech detection
-const END_WINDOWS: usize = 20; // >= 300ms below threshold to stop
+const DEFAULT_END_WINDOWS: usize = 20; // >= 300ms below threshold to stop
 /// Loudness threshold (minumum RMS) for speech detection
-const START_RMS: f32 = 0.001;
+const DEFAULT_START_RMS: f32 = 0.005;
 /// Loudness threshold (maximum RMS) for speech detection
-const END_RMS: f32 = 0.0007;
+const DEFAULT_END_RMS: f32 = 0.01;
 
 use crate::{TranscriptionNotification, TranscriptionThreadState};
 
@@ -61,9 +62,15 @@ fn open_mic() -> Result<UniformSourceIterator<impl rodio::Source>> {
 }
 
 pub fn load_whisper_model(
+    settings: &SpeechSettings,
     notification_sender: Sender<TranscriptionNotification>,
 ) -> Result<WhisperState> {
-    let model_path = paths::languages_dir().join(WHISPER_MODEL_NAME);
+    let model_path = paths::languages_dir().join(
+        settings
+            .model
+            .as_deref()
+            .unwrap_or(DEFAULT_WHISPER_MODEL_NAME),
+    );
     if !model_path.exists() {
         warn!("Whisper model missing at {:?}", model_path);
         notification_sender.send_blocking(TranscriptionNotification::ModelNotFound(
@@ -85,6 +92,7 @@ pub fn load_whisper_model(
 }
 
 pub fn transcription_loop_body(
+    settings: SpeechSettings,
     state: Arc<Mutex<TranscriptionThreadState>>,
     transcription_sender: Sender<String>,
     notification_sender: Sender<TranscriptionNotification>,
@@ -92,12 +100,25 @@ pub fn transcription_loop_body(
     let stream = open_mic()?;
 
     // Load the model
-    let mut whisper_state = load_whisper_model(notification_sender.clone())?;
+    let mut whisper_state = load_whisper_model(&settings, notification_sender.clone())?;
 
     let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 0 });
     // TODO: Make this configurable
-    params.set_n_threads(8);
-    params.set_language(Some("en"));
+    params.set_n_threads(settings.threads.unwrap_or(8) as i32);
+    params.set_language(Some(settings.language.as_deref().unwrap_or("en")));
+
+    let start_rms = settings
+        .start_sensitivity
+        .map(|s| s / 400.0)
+        .unwrap_or(DEFAULT_START_RMS);
+    let end_rms = settings
+        .stop_sensitivity
+        .map(|s| s / 400.0)
+        .unwrap_or(DEFAULT_END_RMS);
+    let start_windows = settings
+        .start_timeout
+        .unwrap_or(DEFAULT_START_WINDOWS as u64) as usize;
+    let end_windows = settings.stop_timeout.unwrap_or(DEFAULT_END_WINDOWS as u64) as usize;
 
     let mut audio_buffer = Vec::new();
     let mut pre_roll = VecDeque::with_capacity(PRE_ROLL_SAMPLES);
@@ -152,13 +173,13 @@ pub fn transcription_loop_body(
         window_energy = 0.0;
 
         if in_speech {
-            if rms < END_RMS {
+            if rms < end_rms {
                 end_run += 1;
             } else {
                 end_run = 0;
             }
 
-            if end_run >= END_WINDOWS {
+            if end_run >= end_windows {
                 if audio_buffer.len() >= BUFFER_SIZE {
                     whisper_state
                         .full(params.clone(), &audio_buffer)
@@ -187,13 +208,13 @@ pub fn transcription_loop_body(
                 end_run = 0;
             }
         } else {
-            if rms > START_RMS {
+            if rms > start_rms {
                 start_run += 1;
             } else {
                 start_run = 0;
             }
 
-            if start_run >= START_WINDOWS {
+            if start_run >= start_windows {
                 in_speech = true;
                 audio_buffer.extend(pre_roll.drain(..));
                 start_run = 0;

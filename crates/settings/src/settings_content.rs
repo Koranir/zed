@@ -4,6 +4,7 @@ mod extension;
 mod language;
 mod language_model;
 mod project;
+mod speech;
 mod terminal;
 mod theme;
 mod workspace;
@@ -14,6 +15,7 @@ pub use extension::*;
 pub use language::*;
 pub use language_model::*;
 pub use project::*;
+pub use speech::*;
 pub use terminal::*;
 pub use theme::*;
 pub use workspace::*;
@@ -29,7 +31,7 @@ use std::env;
 use std::sync::Arc;
 pub use util::serde::default_true;
 
-use crate::{ActiveSettingsProfileName, SpeechSettings, merge_from};
+use crate::{ActiveSettingsProfileName, merge_from};
 
 #[with_fallible_options]
 #[derive(Debug, PartialEq, Default, Clone, Serialize, Deserialize, JsonSchema, MergeFrom)]
@@ -70,7 +72,7 @@ pub struct SettingsContent {
     pub audio: Option<AudioSettingsContent>,
 
     /// Configuration of speech recognition in Zed.
-    pub speech: Option<SpeechSettings>,
+    pub speech: Option<SpeechSettingsContent>,
 
     /// Whether or not to automatically check for updates.
     ///

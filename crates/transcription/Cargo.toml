@@ -19,4 +19,5 @@ parking_lot = "0.12.1"
 paths.workspace = true
 rodio.workspace = true
 transcription_settings.workspace = true
+settings.workspace = true
 whisper-rs = { version = "0.15.1", features = ["tracing_backend", "vulkan"] }

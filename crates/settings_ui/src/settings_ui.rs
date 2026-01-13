@@ -3556,7 +3556,7 @@ fn update_settings_file(
                     .worktree_for_id(worktree_id, cx)
                     .zip(Some(project))
             }) else {
-                anyhow::bail!("Could not find project with worktree id: {}", worktree_id);
+                anyhow::bail!("Could not find project with worktree id: {}", worktree_id)
             };
 
             project.update(cx, |project, cx| {
