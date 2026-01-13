@@ -1005,36 +1005,41 @@ impl MessageEditor {
     }
 
     pub fn start_transcribing(&mut self, cx: &mut Context<Self>) {
-        let this = cx.weak_entity();
-        // let handle = window.window_handle();
+        let this = cx.entity();
 
-        self.transcription = Some((
-            cx.global_mut::<transcription::Transcription>()
-                .subscribe(move |text, cx| {
-                    this.update(cx, |this, cx| {
-                        this.editor.update(cx, |editor, cx| {
-                            info!("Transcribed '{text}' to agent panel");
-                            let ranges = editor
-                                .selections
-                                .disjoint_anchors()
-                                .iter()
-                                .map(|d| (d.start..d.end, text.as_str()))
-                                .collect::<Vec<_>>();
-                            editor.edit(ranges, cx);
+        let transcription = cx.global_mut::<transcription::Transcription>();
 
-                            if this
-                                .transcription
-                                .as_ref()
-                                .is_some_and(|(_, finish)| *finish)
-                            {
-                                this.transcription = None;
-                            }
-                        })
-                    })
-                    .unwrap();
-                }),
-            false,
-        ))
+        if matches!(
+            transcription.state(),
+            transcription::TranscriptionThreadState::Disabled
+        ) {
+            return;
+        }
+
+        let subscription = transcription.subscribe(move |text, cx| {
+            this.update(cx, |this, cx| {
+                this.editor.update(cx, |editor, cx| {
+                    info!("Transcribed '{text}' to agent panel");
+                    let ranges = editor
+                        .selections
+                        .disjoint_anchors()
+                        .iter()
+                        .map(|d| (d.start..d.end, text.as_str()))
+                        .collect::<Vec<_>>();
+                    editor.edit(ranges, cx);
+
+                    if this
+                        .transcription
+                        .as_ref()
+                        .is_some_and(|(_, finish)| *finish)
+                    {
+                        this.transcription = None;
+                    }
+                })
+            });
+        });
+
+        self.transcription = Some((subscription, false))
     }
 
     pub fn stop_transcribing(&mut self, cx: &mut Context<Self>) {

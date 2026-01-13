@@ -5489,11 +5489,20 @@ impl AcpThreadView {
 
     fn render_transcribe_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let is_transcribing = self.message_editor.read(cx).is_transcribing();
+        let can_transcribe = !matches!(
+            cx.global::<transcription::Transcription>().state(),
+            transcription::TranscriptionThreadState::Disabled,
+        );
 
         IconButton::new("transcribe-prompt", IconName::Mic)
             .icon_size(IconSize::Small)
-            .icon_color(Color::Muted)
-            .selected_icon_color(Color::Info)
+            .icon_color(if can_transcribe {
+                Color::Muted
+            } else {
+                Color::Disabled
+            })
+            .toggle_state(is_transcribing)
+            .selected_icon_color(Color::Accent)
             .tooltip(move |_window, cx| {
                 Tooltip::with_meta(
                     "Toggle prompt transcription",

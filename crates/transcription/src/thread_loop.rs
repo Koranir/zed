@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, num::NonZero, sync::Arc, thread::sleep, time::Duration};
+use std::{collections::VecDeque, num::NonZero, sync::Arc};
 
 use anyhow::{Ok, Result};
 use async_channel::Sender;
@@ -100,7 +100,7 @@ pub fn transcription_loop_body(
     let stream = open_mic()?;
 
     // Load the model
-    let mut whisper_state = load_whisper_model(&settings, notification_sender.clone())?;
+    let mut whisper_state = load_whisper_model(&settings, notification_sender)?;
 
     let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 0 });
     // TODO: Make this configurable
@@ -128,21 +128,11 @@ pub fn transcription_loop_body(
     let mut end_run = 0usize;
     let mut in_speech = false;
 
-    let mut was_idling = false;
     let mut was_transcribing = false;
 
     for sample in stream {
-        if controller.kill.load(std::sync::atomic::Ordering::SeqCst) {
-            state_change_sender.send_blocking(TranscriptionThreadState::Disabled)?;
-            info!("Stopping the transcription thread");
-            return Ok(());
-        }
-
-        if controller.wait.load(std::sync::atomic::Ordering::SeqCst) {
-            if !was_idling {
-                state_change_sender.send_blocking(TranscriptionThreadState::Idle)?;
-                was_idling = true;
-            }
+        if controller.interest() == 0 {
+            state_change_sender.send_blocking(TranscriptionThreadState::Idle)?;
 
             // If not listening, clear the buffer and sleep for a bit
             audio_buffer.clear();
@@ -155,11 +145,17 @@ pub fn transcription_loop_body(
 
             info!("Not listening...");
 
-            sleep(Duration::from_millis(500));
-            continue;
-        } else if was_idling {
+            controller.wait_until_interest();
+
+            info!("Awoken...");
+
             state_change_sender.send_blocking(TranscriptionThreadState::Listening)?;
-            was_idling = false;
+        }
+
+        if controller.kill.load(std::sync::atomic::Ordering::SeqCst) {
+            state_change_sender.send_blocking(TranscriptionThreadState::Disabled)?;
+            info!("Stopping the transcription thread");
+            return Ok(());
         }
 
         if !in_speech {
