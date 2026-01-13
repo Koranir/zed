@@ -211,8 +211,6 @@ pub fn init(cx: &mut App) {
                 })
                 .register_action(|workspace, _: &ToggleTranscription, window, cx| {
                     if let Some(panel) = workspace.panel::<AgentPanel>(cx) {
-                        workspace.focus_panel::<AgentPanel>(window, cx);
-
                         if !panel.panel_focus_handle(cx).is_focused(window)
                             && !panel.read(cx).is_transcribing(cx)
                         {
@@ -221,6 +219,7 @@ pub fn init(cx: &mut App) {
                             });
                         }
 
+                        workspace.focus_panel::<AgentPanel>(window, cx);
                         panel.update(cx, |panel, cx| {
                             panel.toggle_transcription(cx);
                         })
